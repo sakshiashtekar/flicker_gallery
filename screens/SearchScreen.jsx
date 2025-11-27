@@ -1,95 +1,109 @@
-import { View, FlatList, Image, ActivityIndicator, Text, SafeAreaView, TouchableOpacity } from "react-native";
-import { useEffect, useState, useLayoutEffect } from "react";
-import { getData, saveData } from "../utils/storage";
+import { useState, useLayoutEffect, useEffect } from "react";
+import {
+  TextInput,
+  FlatList,
+  Image,
+  ActivityIndicator,
+  SafeAreaView,
+  Text,
+  View,
+  RefreshControl,
+} from "react-native";
 import { Snackbar, IconButton } from "react-native-paper";
 
 const API_KEY = "6f102c62f41998d151e5a1b48713cf13";
-const CACHE_KEY = "flickr_recent";
 const IMAGES_PER_PAGE = 10;
 
-export default function HomeScreen({ navigation }) {
+export default function SearchScreen({ navigation }) {
+  const [query, setQuery] = useState("");
   const [images, setImages] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [snackVisible, setSnackVisible] = useState(false);
   const [snackText, setSnackText] = useState("");
 
-  // Add Search button in header
+  // Hamburger menu 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
+      headerLeft: () => (
         <IconButton
-          icon="magnify"
+          icon="menu"
           size={28}
-          onPress={() => navigation.navigate("Search")}
+          onPress={() => navigation.openDrawer()}
         />
       ),
-      title: "Home",
+      title: "Search",
     });
   }, [navigation]);
 
-  // Load cached and fetch first page
-  useEffect(() => {
-    loadCachedImages();
-    fetchImages(1);
-  }, []);
+  // Fetch search results
+  const fetchSearch = async (searchText, pageNum = 1) => {
+    if (!searchText) return;
 
-  const loadCachedImages = async () => {
-    try {
-      const cached = await getData(CACHE_KEY);
-      if (cached) setImages(cached);
-    } catch (err) {
-      console.log("Failed to load cached images:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchImages = async (pageNum = 1) => {
     if (pageNum === 1) setLoading(true);
     else setLoadingMore(true);
 
     try {
-      const url = `https://api.flickr.com/services/rest/?method=flickr.photos.getRecent&api_key=${API_KEY}&format=json&nojsoncallback=1&extras=url_s&per_page=${IMAGES_PER_PAGE}&page=${pageNum}`;
+      const url = `https://api.flickr.com/services/rest/?method=flickr.photos.search&api_key=${API_KEY}&format=json&nojsoncallback=1&extras=url_s&per_page=${IMAGES_PER_PAGE}&text=${searchText}&page=${pageNum}`;
 
       const res = await fetch(url);
-      if (!res.ok) throw new Error("Network response not ok");
+      if (!res.ok) throw new Error("Network issue");
 
       const json = await res.json();
       const newImages = json.photos.photo.map((p) => p.url_s);
 
       if (pageNum === 1) {
         setImages(newImages);
-        saveData(CACHE_KEY, newImages);
       } else {
         setImages((prev) => [...prev, ...newImages]);
       }
 
       setPage(pageNum);
     } catch (error) {
-      setSnackText("Failed to load images. Retry?");
+      setSnackText("Search failed. Retry?");
       setSnackVisible(true);
-      console.log("Error fetching images:", error);
+      console.log("Search error:", error);
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
   };
 
-  // Trigger on scroll 
+  // Start new search
+  const startSearch = () => {
+    setPage(1);
+    fetchSearch(query, 1);
+  };
+
+  // Pagination
   const handleLoadMore = () => {
-    if (!loadingMore) {
-      fetchImages(page + 1);  // page=2,3,4...
+    if (!loadingMore && images.length > 0) {
+      fetchSearch(query, page + 1);
     }
   };
 
   return (
     <SafeAreaView style={{ flex: 1 }}>
+      {/* Search Bar */}
+      <TextInput
+        placeholder="Search images..."
+        value={query}
+        onChangeText={setQuery}
+        onSubmitEditing={startSearch}
+        style={{
+          margin: 10,
+          padding: 10,
+          borderWidth: 1,
+          borderRadius: 10,
+        }}
+      />
+
+      {/* Loader like HomeScreen */}
       {loading && page === 1 ? (
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
           <ActivityIndicator size="large" />
-          <Text>Loading Images...</Text>
+          <Text>Searching...</Text>
         </View>
       ) : (
         <FlatList
@@ -108,7 +122,7 @@ export default function HomeScreen({ navigation }) {
             />
           )}
           onEndReachedThreshold={0.5}
-          onEndReached={handleLoadMore} // auto load when scrolling
+          onEndReached={handleLoadMore}
           ListFooterComponent={
             loadingMore ? (
               <View style={{ padding: 20 }}>
@@ -116,18 +130,22 @@ export default function HomeScreen({ navigation }) {
               </View>
             ) : null
           }
-          refreshing={loading}
-          onRefresh={() => fetchImages(1)}
+          refreshControl={
+            <RefreshControl
+              refreshing={loading && page === 1}
+              onRefresh={() => fetchSearch(query, 1)}
+            />
+          }
         />
       )}
 
-      {/* Snackbar */}
+      {/* Snackbar Retry */}
       <Snackbar
         visible={snackVisible}
         onDismiss={() => setSnackVisible(false)}
         action={{
           label: "Retry",
-          onPress: () => fetchImages(page),
+          onPress: () => fetchSearch(query, page),
         }}
       >
         {snackText}
